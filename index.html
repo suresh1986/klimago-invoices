@@ -1,0 +1,1360 @@
+<!DOCTYPE html>
+<html lang="sl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KLIMAGO — Račun</title>
+<style>
+  /* ------------------------------------------------------------------ tokens */
+  :root {
+    --brand-blue: #36A9E1;
+    --brand-blue-dark: #2D8FBF;
+    --payment-bg: #7EB4E2;
+    --text-dark: #3B3B3B;
+    --text-muted: #8E8E8E;
+    --text-white: #FFFFFF;
+    --grey-line: #CCCCCC;
+    --row-line: #E4E9ED;
+    --bg-app: #F4F6F9;
+    --bg-card: #FFFFFF;
+    --border: #D9DEE3;
+    --danger: #C2453F;
+    /* horizontal inset shared by header, table content, totals, payment, ref —
+       so every left/right edge of visible content lines up. 5% of A4 width. */
+    --inv-inset: 10.5mm;
+    /* internal table cell padding, kept small for breathing room */
+    --inv-cell-pad: 6px;
+    --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+                 Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg-app);
+               font-family: var(--font-sans); color: var(--text-dark);
+               -webkit-text-size-adjust: 100%; }
+  button { font-family: inherit; }
+
+  /* ------------------------------------------------------------------ shell */
+  .app-bar {
+    position: sticky; top: 0; z-index: 10;
+    background: #fff; border-bottom: 1px solid var(--border);
+    padding: 10px 16px; display: flex; align-items: center;
+    gap: 12px;
+  }
+  .app-bar h1 {
+    margin: 0; font-size: 16px; font-weight: 600; color: var(--brand-blue);
+    flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .app-bar .actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .btn {
+    border: 1px solid var(--border); background: #fff;
+    padding: 8px 14px; font-size: 14px; border-radius: 6px;
+    cursor: pointer; color: var(--text-dark);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn:hover { background: #F4F6F9; }
+  .btn-primary {
+    background: var(--brand-blue); color: #fff; border-color: var(--brand-blue);
+    font-weight: 600;
+  }
+  .btn-primary:hover { background: var(--brand-blue-dark); }
+  .btn-danger { color: var(--danger); }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(320px, 1fr) minmax(0, 800px);
+    gap: 20px;
+    padding: 20px;
+    max-width: 1480px; margin: 0 auto;
+  }
+  @media (max-width: 1100px) {
+    .layout { grid-template-columns: 1fr; padding: 12px; gap: 16px; }
+  }
+  @media (max-width: 600px) {
+    .app-bar { padding: 8px 12px; gap: 8px; }
+    .app-bar h1 { font-size: 14px; }
+    .btn { padding: 7px 10px; font-size: 13px; }
+    .layout { padding: 8px; gap: 12px; }
+  }
+
+  /* ------------------------------------------------------------------ form */
+  .panel {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px;
+  }
+  @media (max-width: 600px) {
+    .panel { padding: 12px; border-radius: 6px; }
+  }
+  .panel h2 {
+    margin: 0 0 12px; font-size: 13px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted); font-weight: 600;
+  }
+  .field { display: flex; flex-direction: column; margin-bottom: 10px; }
+  .field label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--text-muted); margin-bottom: 4px; font-weight: 600;
+  }
+  .field input, .field textarea, .field select {
+    font: inherit; padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: 6px; background: #fff; color: var(--text-dark);
+    width: 100%;
+  }
+  /* Prevent iOS Safari from auto-zooming on focus when font-size < 16px */
+  @media (max-width: 600px) {
+    .field input, .field textarea, .field select { font-size: 16px; padding: 9px 10px; }
+  }
+  .field input:focus, .field textarea:focus, .field select:focus {
+    outline: 2px solid var(--brand-blue); outline-offset: -1px;
+    border-color: var(--brand-blue);
+  }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 480px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .checkbox-row {
+    display: flex; align-items: flex-start; gap: 10px;
+    margin-top: 12px; padding: 10px;
+    border: 1px solid var(--border); border-radius: 6px;
+    background: #FAFBFC; cursor: pointer;
+  }
+  .checkbox-row input[type="checkbox"] {
+    margin-top: 2px; width: 18px; height: 18px; cursor: pointer; flex-shrink: 0;
+  }
+  .checkbox-row span { display: flex; flex-direction: column; gap: 2px; }
+  .checkbox-row strong { font-size: 13px; color: var(--text-dark); }
+  .checkbox-row small { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+
+  /* line items */
+  .items-list { display: flex; flex-direction: column; gap: 12px; }
+  .item-card {
+    border: 1px solid var(--border); border-radius: 6px; padding: 10px;
+    background: #FAFBFC; position: relative;
+  }
+  .item-card.is-discount { background: #FFF7F2; border-color: #F0DCD0; }
+  .item-card .item-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+  }
+  .item-card .type-pill {
+    font-size: 11px; padding: 3px 8px; border-radius: 99px;
+    background: var(--brand-blue); color: #fff; font-weight: 600;
+  }
+  .item-card.is-discount .type-pill { background: #C97A4F; }
+  .item-card .item-actions {
+    margin-left: auto; display: flex; gap: 6px;
+  }
+  .icon-btn {
+    border: 1px solid var(--border); background: #fff;
+    width: 32px; height: 32px; padding: 0;
+    font-size: 14px; border-radius: 4px; cursor: pointer;
+    color: var(--text-muted);
+    display: inline-flex; align-items: center; justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .icon-btn:hover { background: #F4F6F9; color: var(--text-dark); }
+  .icon-btn.is-danger:hover { color: var(--danger); border-color: var(--danger); }
+  .item-grid {
+    display: grid; gap: 8px;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    align-items: end;
+  }
+  .item-grid .col-name { grid-column: 1 / -1; }
+  .item-grid input, .item-grid select { padding: 6px 8px; font-size: 13px; }
+  @media (max-width: 600px) {
+    .item-grid input, .item-grid select { font-size: 16px; padding: 8px 10px; }
+    .item-grid { grid-template-columns: 1fr 1fr; }
+  }
+
+  .add-row-btns {
+    display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;
+  }
+  @media (max-width: 600px) {
+    .add-row-btns .btn { flex: 1; min-width: 0; }
+  }
+
+  /* ------------------------------------------------------------------ preview wrapper */
+  .preview-wrap {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+  }
+  .preview-scroll {
+    width: 100%;
+    max-width: 100%;
+    background: #E1E5EA;
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  @media (max-width: 600px) {
+    .preview-scroll { padding: 8px; border-radius: 6px; }
+  }
+  /* Scaler holds the natural-size invoice and shrinks it to fit the
+     available width via JS-set --preview-scale custom property. The
+     scaler itself takes its scaled height so the page layout flows
+     correctly (no huge whitespace below). */
+  .preview-scaler {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+  }
+  .preview-scaler #invoice {
+    transform-origin: top left;
+    transform: scale(var(--preview-scale, 1));
+    /* On wide screens center the scaled invoice horizontally */
+    margin-left: var(--preview-offset-x, 0px);
+  }
+
+  /* ------------------------------------------------------------------ A4 invoice page */
+  /* A4 = 210 × 297 mm. We use mm units so print fidelity is preserved. */
+  .invoice {
+    width: 210mm;
+    min-height: 297mm;
+    background: #fff;
+    color: var(--text-dark);
+    position: relative;
+    /* No padding here — the page-layout table cells provide the inner
+       margins so the same horizontal/vertical spacing repeats on every
+       page in print. */
+    padding: 0;
+    font-size: 9.5pt;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    overflow: hidden;
+  }
+
+  /* Page layout table: thead and tfoot auto-repeat on every page when
+     the table content overflows in print. */
+  .page-layout {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .page-header-cell { padding: 18mm 16mm 0; }
+  .page-body-cell { padding: 0 16mm; }
+  .page-footer-cell { padding: 0 16mm 12mm; }
+
+  /* Scale invoice down on small screens for preview only */
+  @media (max-width: 1100px) {
+    .invoice { transform-origin: top center; }
+  }
+
+  /* Background ornaments — left and right dotted strips */
+  .ornament {
+    position: absolute; top: 0; bottom: 0; width: 14mm;
+    pointer-events: none; user-select: none;
+    background-repeat: repeat-y; background-size: 100% auto;
+  }
+  .ornament-left { left: 0; background-image: url("assets/ornaments-left.svg"); }
+  .ornament-right { right: 0; background-image: url("assets/ornaments-right.svg"); }
+
+  /* Header — logo only inside the repeating thead. */
+  .inv-header {
+    padding: 0 var(--inv-inset);
+    margin-bottom: 6mm;
+  }
+  .inv-logo img { height: 16mm; width: auto; display: block; }
+
+  /* Račun št. — first-page-only. Positioned absolute over the header
+     area so it appears once at the top-right of page 1. */
+  .inv-number {
+    position: absolute;
+    top: 22mm; right: calc(16mm + var(--inv-inset));
+    text-align: right; line-height: 1.1;
+    z-index: 5;
+  }
+  .inv-number .label { color: var(--text-muted); font-size: 17pt; font-weight: 400; }
+  .inv-number .value { color: var(--brand-blue); font-size: 28pt; font-weight: 700;
+                       margin-left: 4px; }
+
+  /* Divider line — same thickness as the bottom blue line in the footer */
+  .inv-divider {
+    height: 3pt; background: var(--brand-blue); margin: 0 0 6mm;
+  }
+
+  /* Client + dates */
+  .inv-client {
+    display: flex; justify-content: space-between; gap: 8mm; margin-bottom: 6mm;
+    padding: 0 var(--inv-inset);
+  }
+  .inv-client .client { line-height: 1.5; }
+  .inv-client .client .name { font-weight: 700; font-size: 11pt; }
+  .inv-client .dates { text-align: right; line-height: 1.5; font-size: 9pt; }
+  .inv-client .dates .due-label { font-weight: 700; }
+
+  /* Items table — header background spans the FULL content width (same
+     as top blue divider). Cell text is inset by --inv-inset on the
+     first and last columns so it aligns with logo / right-side text. */
+  .inv-table-wrap { /* full width, no padding */ }
+  .inv-table { width: 100%; border-collapse: collapse; margin-bottom: 2mm;
+               table-layout: fixed; }
+  .inv-table thead th {
+    background: #EAF4FB; text-align: left;
+    padding: 5px var(--inv-cell-pad);
+    font-size: 7.5pt; font-weight: 400; color: var(--text-dark);
+    text-transform: none;
+  }
+  .inv-table thead th.center { text-align: center; }
+  .inv-table thead th.right { text-align: right; }
+  .inv-table tbody td {
+    padding: 5px var(--inv-cell-pad);
+    font-size: 8pt; vertical-align: top;
+  }
+  /* Inset the first/last column so their text aligns with logo / right edge */
+  .inv-table thead th:first-child,
+  .inv-table tbody td:first-child {
+    padding-left: var(--inv-inset);
+  }
+  .inv-table thead th:last-child,
+  .inv-table tbody td:last-child {
+    padding-right: var(--inv-inset);
+  }
+  .inv-table tbody td.center { text-align: center; }
+  .inv-table tbody td.right { text-align: right; }
+  .inv-table .name-line { font-weight: 700; color: var(--text-dark); font-size: 8pt; }
+  .inv-table .desc-line { color: var(--text-muted); font-size: 7pt; margin-top: 1px; }
+  .inv-table .sum-cell { color: var(--brand-blue); font-weight: 700; }
+  .inv-table .sum-cell.is-negative { color: #C2453F; }
+
+  /* Thin blue divider that separates the items table from the
+     service-info / totals area. Same color as the top divider. */
+  .inv-divider-thin {
+    height: 1.2pt; background: var(--brand-blue);
+    margin: 2mm 0 3mm;
+  }
+
+  /* Totals */
+  .inv-totals { margin-top: 2mm; }
+  .totals-line {
+    display: flex; justify-content: flex-end; gap: 4mm;
+    padding: 3px var(--inv-inset);
+    font-size: 9pt;
+  }
+  .totals-line .label {
+    color: var(--text-dark); font-size: 7pt; font-weight: 700;
+  }
+  .totals-line .value { min-width: 28mm; text-align: right; color: var(--text-dark); }
+  .totals-line.tax .value { font-weight: 700; }
+
+  /* Grey line between SKUPAJ BREZ DDV and the DDV rows.
+     45% of page width, right edge aligned with the blue lines above
+     (which span the full .invoice content area). */
+  .totals-grey-divider {
+    height: 1px; background: var(--grey-line);
+    width: 45%; margin: 3px 0 3px auto;
+  }
+
+  /* Below the grey line: service info on the LEFT, DDV rows on the
+     RIGHT — both vertically aligned to the top so service info sits
+     beside the per-rate rows rather than pushing them down. */
+  .totals-split {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 6mm;
+    padding: 0 var(--inv-inset);
+  }
+  .totals-meta {
+    font-size: 8pt;
+    line-height: 1.5;
+    color: var(--text-dark);
+  }
+  .totals-right {
+    /* shrink to fit so the totals-line right-alignment still works */
+    margin-left: auto;
+  }
+  /* Per-rate DDV rows + the DDV (skupaj) row inside .totals-right —
+     no horizontal padding because the parent .totals-split already
+     applies --inv-inset on both sides. */
+  .totals-right .totals-line { padding-left: 0; padding-right: 0; }
+  #invoiceTaxRates .totals-line { padding-top: 1px; padding-bottom: 1px; }
+
+  .inv-meta-lines {
+    margin: 4mm 0 5mm;
+    padding: 0 var(--inv-inset);
+    font-size: 8pt;
+    color: var(--text-dark);
+    line-height: 1.5;
+  }
+  .inv-meta-lines .meta-row { display: flex; justify-content: space-between; }
+  .inv-meta-lines .meta-tax { text-align: right; }
+
+  /* Payment block */
+  .inv-payment {
+    background: var(--payment-bg);
+    color: var(--text-white);
+    padding: 5mm var(--inv-inset);
+    margin: 5mm 0 4mm;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 6mm;
+    border-radius: 1px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .inv-payment .pay-left .label {
+    color: var(--text-dark); font-size: 8pt; font-weight: 400;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .inv-payment .pay-left .iban {
+    color: var(--text-white); font-size: 14pt; font-weight: 700; margin: 1mm 0;
+  }
+  .inv-payment .pay-left .bank {
+    color: var(--text-dark); font-size: 8pt;
+  }
+  .inv-payment .pay-right { text-align: right; line-height: 1; }
+  .inv-payment .pay-right .label {
+    color: var(--text-dark); font-size: 8pt; text-transform: uppercase;
+    letter-spacing: 0.05em; margin-bottom: 1mm; display: block;
+  }
+  .inv-payment .pay-right .total {
+    color: var(--text-white); font-size: 28pt; font-weight: 700;
+  }
+
+  /* Reference + signature */
+  .inv-bottom {
+    display: flex; justify-content: space-between; gap: 8mm;
+    margin-top: 3mm;
+    padding: 0 var(--inv-inset);
+  }
+  .inv-bottom .ref { font-size: 8.5pt; line-height: 1.6; color: var(--text-dark); }
+  .inv-bottom .signature {
+    flex-shrink: 0; width: 45mm; height: 45mm;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .inv-bottom .signature img {
+    max-width: 100%; max-height: 100%; opacity: 0.85;
+  }
+
+  /* Footer — divider line + text image, both spanning the same width
+     as the top .inv-divider so they line up exactly. Sits inside the
+     repeating tfoot so it appears on every page in print. */
+  .inv-footer {
+    height: 16mm;
+  }
+  .inv-footer .footer-divider {
+    height: 3pt; background: var(--brand-blue); margin-bottom: 3mm;
+  }
+  .inv-footer .footer-text {
+    height: calc(100% - 3pt - 3mm);
+    /* Inset so the text aligns with logo / right edge of other sections */
+    padding: 0 var(--inv-inset);
+    box-sizing: border-box;
+    background-image: url("assets/footer-text.svg");
+    background-repeat: no-repeat; background-position: center bottom;
+    background-size: contain;
+    background-origin: content-box;
+  }
+
+  /* Last-page section — keep together so totals/payment/ref don't split
+     across pages. Falls onto the last page since it's the last element
+     in tbody. */
+  .last-page-section {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Reverse-charge DDV block (and its grey separator) are hidden by
+     default. Toggled on by adding .exclude-ddv to .invoice. */
+  .inv-reverse-charge,
+  .inv-divider-grey { display: none; }
+  .invoice.exclude-ddv .inv-reverse-charge { display: block; }
+  .invoice.exclude-ddv .inv-divider-grey { display: block; }
+  /* Hide the in-totals DDV rows when reverse-charge mode is on */
+  .invoice.exclude-ddv #invoiceTaxRates,
+  .invoice.exclude-ddv .totals-line.tax { display: none; }
+
+  .inv-reverse-charge {
+    margin-top: 5mm;
+  }
+  .reverse-charge-text {
+    font-size: 8pt;
+    color: var(--text-dark);
+    line-height: 1.4;
+    margin-bottom: 3mm;
+    padding: 0 var(--inv-inset);
+  }
+  .reverse-charge-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .reverse-charge-table thead th {
+    background: #E0E2E5;
+    text-align: left;
+    padding: 5px var(--inv-cell-pad);
+    font-size: 7.5pt; font-weight: 400; color: var(--text-dark);
+  }
+  .reverse-charge-table thead th.right { text-align: right; }
+  .reverse-charge-table tbody td {
+    padding: 5px var(--inv-cell-pad);
+    font-size: 8pt; vertical-align: top;
+    border-bottom: 1px solid var(--row-line);
+  }
+  .reverse-charge-table tbody td.right { text-align: right; }
+  .reverse-charge-table tbody td:first-child {
+    padding-left: var(--inv-inset); font-weight: 700;
+  }
+  .reverse-charge-table tbody td:last-child { padding-right: var(--inv-inset); }
+  .reverse-charge-table thead th:first-child { padding-left: var(--inv-inset); }
+  .reverse-charge-table thead th:last-child { padding-right: var(--inv-inset); }
+
+  /* Full-width grey separator above the Referenca section. */
+  .inv-divider-grey {
+    height: 1px; background: var(--grey-line);
+    margin: 4mm 0 3mm;
+  }
+
+  /* ------------------------------------------------------------------ print */
+  @page { size: A4 portrait; margin: 0; }
+  @media print {
+    html, body { background: #fff; margin: 0; padding: 0; }
+    .app-bar, .form-panel { display: none !important; }
+    .layout { display: block; padding: 0; max-width: none; margin: 0; }
+    .preview-wrap { display: block; padding: 0; gap: 0; }
+    .preview-scroll {
+      background: none; padding: 0; border: 0; overflow: visible;
+      width: auto; max-width: none;
+    }
+    .preview-scaler {
+      width: auto; height: auto; overflow: visible;
+    }
+    .preview-scaler #invoice {
+      width: 210mm; min-height: 0; box-shadow: none;
+      transform: none !important; margin: 0 !important;
+      overflow: visible;
+    }
+    /* In print, allow the table cells to break across pages and let
+       thead/tfoot repeat. */
+    .page-layout, .page-layout > tbody, .page-layout > tbody > tr,
+    .page-layout > tbody > tr > td {
+      page-break-inside: auto;
+      break-inside: auto;
+    }
+    .page-layout > thead { display: table-header-group; }
+    .page-layout > tfoot { display: table-footer-group; }
+    /* Don't split a single item row across pages */
+    .inv-table tbody tr { page-break-inside: avoid; break-inside: avoid; }
+    /* force background colors to print */
+    * { -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important; }
+  }
+</style>
+</head>
+<body>
+
+<header class="app-bar">
+  <h1>KLIMAGO — Račun generator</h1>
+  <div class="actions">
+    <button class="btn btn-danger" id="btnReset" title="Wipe all fields and start fresh">Reset</button>
+    <button class="btn btn-primary" id="btnPrint">Save as PDF</button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- ============================================================ FORM -->
+  <section class="form-panel">
+
+    <div class="panel">
+      <h2>Invoice header</h2>
+      <div class="grid-2">
+        <div class="field">
+          <label for="invoiceLabel">Invoice number label</label>
+          <input type="text" id="invoiceLabel" placeholder="Račun št.">
+        </div>
+        <div class="field">
+          <label for="invoiceNumber">Invoice number</label>
+          <input type="text" id="invoiceNumber" placeholder="5/26">
+        </div>
+        <div class="field">
+          <label for="issueCity">City of issue</label>
+          <input type="text" id="issueCity" placeholder="Mengeš">
+        </div>
+        <div class="field">
+          <label for="issueDate">Issue date</label>
+          <input type="date" id="issueDate">
+        </div>
+        <div class="field">
+          <label for="dueDate">Due date (Datum zapadlosti)</label>
+          <input type="date" id="dueDate">
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <h2>Client</h2>
+      <div class="field">
+        <label for="clientName">Client name</label>
+        <input type="text" id="clientName" placeholder="MARIJA HORVAT">
+      </div>
+      <div class="field">
+        <label for="clientAddress1">Address line 1</label>
+        <input type="text" id="clientAddress1" placeholder="Kunaverjeva ulica 3">
+      </div>
+      <div class="field">
+        <label for="clientAddress2">Address line 2</label>
+        <input type="text" id="clientAddress2" placeholder="1000 Ljubljana">
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <h2>Service info (optional)</h2>
+      <div class="field">
+        <label for="serviceLocation">Lokacija izvedbe</label>
+        <input type="text" id="serviceLocation" placeholder="Kunaverjeva ulica 3, 1000 Ljubljana">
+      </div>
+      <div class="field">
+        <label for="serviceDate">Datum izvedbe</label>
+        <input type="date" id="serviceDate">
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <h2>Line items</h2>
+      <div class="items-list" id="itemsList"></div>
+      <div class="add-row-btns">
+        <button class="btn" type="button" id="btnAddItem">+ Add item</button>
+        <button class="btn" type="button" id="btnAddDiscount">+ Add discount</button>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <h2>Payment</h2>
+      <div class="field">
+        <label for="iban">IBAN</label>
+        <input type="text" id="iban" placeholder="SI56 0284 3026 6445 018">
+      </div>
+      <div class="field">
+        <label for="bankName">Bank line ("odprt pri ...")</label>
+        <input type="text" id="bankName" placeholder="odprt pri NLB d.d.">
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label for="refModel">Model</label>
+          <input type="text" id="refModel" placeholder="00">
+        </div>
+        <div class="field">
+          <label for="refSklic">Sklic</label>
+          <input type="text" id="refSklic" placeholder="5-2026">
+        </div>
+      </div>
+      <label class="checkbox-row" for="excludeDdvFromTotal">
+        <input type="checkbox" id="excludeDdvFromTotal">
+        <span>
+          <strong>Exclude DDV from total</strong>
+          <small>Reverse-charge invoices: SKUPAJ ZA PLAČILO equals the
+          base amount, and a separate "OBRNJENA DAVČNA OBVEZNOST" block
+          is shown above the signature.</small>
+        </span>
+      </label>
+    </div>
+
+  </section>
+
+  <!-- ============================================================ PREVIEW -->
+  <section class="preview-wrap">
+    <div class="preview-scroll">
+      <div class="preview-scaler" id="previewScaler">
+        <article class="invoice" id="invoice">
+
+          <div class="ornament ornament-left"></div>
+          <div class="ornament ornament-right"></div>
+
+          <!-- Multi-page layout: thead = page header (repeats every page),
+               tfoot = page footer (repeats every page), tbody = flowing
+               content (client info, items, last-page section). -->
+          <table class="page-layout">
+            <thead>
+              <tr><td class="page-header-cell">
+                <header class="inv-header">
+                  <div class="inv-logo">
+                    <img src="assets/logo.svg" alt="KLIMAGO">
+                  </div>
+                </header>
+                <div class="inv-divider"></div>
+              </td></tr>
+            </thead>
+
+            <tfoot>
+              <tr><td class="page-footer-cell">
+                <div class="inv-footer">
+                  <div class="footer-divider"></div>
+                  <div class="footer-text"></div>
+                </div>
+              </td></tr>
+            </tfoot>
+
+            <tbody>
+              <tr><td class="page-body-cell">
+
+                <!-- First-page-only client / dates section -->
+                <div class="inv-client first-page-only">
+                  <div class="client">
+                    <div class="name" data-bind="clientName">CLIENT NAME</div>
+                    <div data-bind="clientAddress1">Address line 1</div>
+                    <div data-bind="clientAddress2">Address line 2</div>
+                  </div>
+                  <div class="dates">
+                    <div><span data-bind="issueCity">Mengeš</span>, <span data-bind="issueDateFormatted">10.04.2026</span></div>
+                    <div class="due-label">Datum zapadlosti:</div>
+                    <div data-bind="dueDateFormatted">17.04.2026</div>
+                  </div>
+                </div>
+
+                <!-- Items table — flows across pages. Inner thead repeats. -->
+                <div class="inv-table-wrap">
+                  <table class="inv-table">
+                    <thead>
+                      <tr>
+                        <th>STORITEV</th>
+                        <th class="center" style="width:14mm">KOLIČINA</th>
+                        <th class="center" style="width:11mm">ENOTA</th>
+                        <th class="center" style="width:11mm">DDV</th>
+                        <th class="right" style="width:18mm">CENA</th>
+                        <th class="right" style="width:32mm">SKUPAJ</th>
+                      </tr>
+                    </thead>
+                    <tbody id="invoiceItemsBody"></tbody>
+                  </table>
+                </div>
+
+                <!-- Last-page-only section: thin blue, totals, payment, ref.
+                     page-break-inside avoid keeps these together on last page. -->
+                <div class="last-page-section">
+                  <div class="inv-divider-thin"></div>
+
+                  <div class="inv-totals">
+                    <div class="totals-line subtotal">
+                      <span class="label">SKUPAJ BREZ DDV</span>
+                      <span class="value" data-bind="subtotalFormatted">0,00 €</span>
+                    </div>
+                    <div class="totals-grey-divider"></div>
+                    <div class="totals-split">
+                      <div class="totals-meta" id="invoiceMetaLines"></div>
+                      <div class="totals-right">
+                        <div id="invoiceTaxRates"></div>
+                        <div class="totals-line tax">
+                          <span class="label" data-bind="taxLabel">DDV</span>
+                          <span class="value" data-bind="taxFormatted">0,00 €</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="inv-payment">
+                    <div class="pay-left">
+                      <div class="label">PLAČILO NA TRR :</div>
+                      <div class="iban" data-bind="iban">SI56 0284 3026 6445 018</div>
+                      <div class="bank" data-bind="bankName">odprt pri NLB d.d.</div>
+                    </div>
+                    <div class="pay-right">
+                      <span class="label">SKUPAJ ZA PLAČILO:</span>
+                      <div class="total" data-bind="totalFormatted">0,00 €</div>
+                    </div>
+                  </div>
+
+                  <!-- Reverse-charge DDV section (only when "Exclude DDV
+                       from total" is checked). Sits between the blue
+                       payment box and the Referenca/signature row. -->
+                  <div class="inv-reverse-charge">
+                    <div class="reverse-charge-text">
+                      <div>Podatki o davčni osnovi in znesku DDV, ki ga po 76.a členu ZDDV-1</div>
+                      <div>kot obveznost izkaže naročnik storitve in ni všt v znesek obračunanega DDV po tem računu:</div>
+                    </div>
+                    <table class="reverse-charge-table">
+                      <thead>
+                        <tr>
+                          <th>OBRNJENA DAVČNA OBVEZNOST</th>
+                          <th class="right">OSNOVA ZA DDV</th>
+                          <th class="right">DDV</th>
+                        </tr>
+                      </thead>
+                      <tbody id="reverseChargeRows"></tbody>
+                    </table>
+                  </div>
+
+                  <!-- Grey separator line — full content width, only
+                       shown when reverse-charge is on. Sits above
+                       Referenca prejemnika. -->
+                  <div class="inv-divider-grey"></div>
+
+                  <div class="inv-bottom">
+                    <div class="ref">
+                      <div>Referenca prejemnika: SI</div>
+                      <div>Model: <span data-bind="refModel">00</span></div>
+                      <div>Sklic: <span data-bind="refSklic">5-2026</span></div>
+                    </div>
+                    <div class="signature">
+                      <img src="assets/signature.svg" alt="">
+                    </div>
+                  </div>
+                </div>
+
+              </td></tr>
+            </tbody>
+          </table>
+
+          <!-- Račun št. — first-page-only, positioned absolute over the
+               header logo area. Lives outside the page-layout table so it
+               renders once at its document position (= page 1 top-right).
+               Label text is editable (e.g. "Predračun št." for prepaid). -->
+          <div class="inv-number first-page-only">
+            <span class="label" data-bind="invoiceLabel">Račun št.</span>
+            <span class="value" data-bind="invoiceNumber">5/26</span>
+          </div>
+
+        </article>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ============================================================ TEMPLATE -->
+<template id="tplItem">
+  <div class="item-card" data-kind="item">
+    <div class="item-head">
+      <span class="type-pill">ITEM</span>
+      <div class="item-actions">
+        <button type="button" class="icon-btn js-up" title="Move up">↑</button>
+        <button type="button" class="icon-btn js-down" title="Move down">↓</button>
+        <button type="button" class="icon-btn is-danger js-remove" title="Remove">✕</button>
+      </div>
+    </div>
+    <div class="item-grid">
+      <div class="field col-name" style="grid-column:1/-1">
+        <label>Name</label>
+        <input class="js-name" type="text" placeholder="ITEM NAME">
+      </div>
+      <div class="field col-name" style="grid-column:1/-1">
+        <label>Description (optional)</label>
+        <textarea class="js-desc" rows="2" placeholder="Item description"></textarea>
+      </div>
+      <div class="field">
+        <label>Količina</label>
+        <input class="js-qty" type="number" step="0.01" min="0" value="1">
+      </div>
+      <div class="field">
+        <label>Enota</label>
+        <select class="js-unit">
+          <option value="kos">kos</option>
+          <option value="pcs">pcs</option>
+          <option value="h">h</option>
+          <option value="m">m</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>DDV</label>
+        <select class="js-tax">
+          <option value="22">22%</option>
+          <option value="9.5">9,5%</option>
+          <option value="0">/</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Cena (€)</label>
+        <input class="js-price" type="number" step="0.01" min="0" value="0">
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="tplDiscount">
+  <div class="item-card is-discount" data-kind="discount">
+    <div class="item-head">
+      <span class="type-pill">POPUST</span>
+      <div class="item-actions">
+        <button type="button" class="icon-btn js-up" title="Move up">↑</button>
+        <button type="button" class="icon-btn js-down" title="Move down">↓</button>
+        <button type="button" class="icon-btn is-danger js-remove" title="Remove">✕</button>
+      </div>
+    </div>
+    <div class="item-grid">
+      <div class="field col-name" style="grid-column:1/-1">
+        <label>Label</label>
+        <input class="js-name" type="text" value="POPUST" placeholder="POPUST">
+      </div>
+      <div class="field col-name" style="grid-column:1/-1">
+        <label>Description (optional)</label>
+        <textarea class="js-desc" rows="1" placeholder=""></textarea>
+      </div>
+      <div class="field col-name">
+        <label>Discount % (applied to row above)</label>
+        <input class="js-pct" type="number" step="0.01" min="0" max="100" value="10">
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+(function () {
+  'use strict';
+
+  // ------------------------------------------------------------------ state
+  const STORAGE_KEY = 'klimago.invoice.v1';
+
+  const defaultItems = [
+    { kind: 'item', name: 'KLIMATSKA NAPRAVA SAMSUNG COMFORT WINDFREE 12, 3,5kW',
+      desc: 'notranja enota: AR09TXFCAWKNEU\nzunanja enota: AR09TXFCAWKXEU',
+      qty: 1, unit: 'kos', tax: 22, price: 1059.00 },
+    { kind: 'discount', name: 'POPUST PRI KLIMATSKO NAPRAVO', desc: '', pct: 15 },
+    { kind: 'item', name: 'MONTAŽA STENSKE KLIMATSKE NAPRAVE 3,5kW – 5,0kW s porabnim materialom',
+      desc: 'rezilni zunanje enote: 620mm\ndolžina inštalacije: 2m',
+      qty: 1, unit: 'kos', tax: 9.5, price: 340.00 },
+  ];
+
+  const defaults = {
+    invoiceLabel: 'Račun št.',
+    invoiceNumber: '5/26',
+    issueCity: 'Mengeš',
+    issueDate: '2026-03-20',
+    dueDate: '2026-03-27',
+    clientName: 'MARIJA HORVAT',
+    clientAddress1: 'Kunaverjeva ulica 3',
+    clientAddress2: '1000 Ljubljana',
+    serviceLocation: 'Kunaverjeva ulica 3, 1000 Ljubljana',
+    serviceDate: '2026-03-20',
+    iban: 'SI56 0284 3026 6445 018',
+    bankName: 'odprt pri NLB d.d.',
+    refModel: '00',
+    refSklic: '5-2026',
+    excludeDdvFromTotal: false,
+    items: defaultItems,
+  };
+
+  let state = loadState();
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) return Object.assign({}, defaults, JSON.parse(raw));
+    } catch (_) { /* ignore */ }
+    return JSON.parse(JSON.stringify(defaults));
+  }
+
+  function saveState() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    catch (_) { /* ignore */ }
+  }
+
+  // ------------------------------------------------------------------ helpers
+  const SCALAR_FIELDS = [
+    'invoiceLabel', 'invoiceNumber', 'issueCity', 'issueDate', 'dueDate',
+    'clientName', 'clientAddress1', 'clientAddress2',
+    'serviceLocation', 'serviceDate',
+    'iban', 'bankName', 'refModel', 'refSklic',
+  ];
+  const BOOL_FIELDS = ['excludeDdvFromTotal'];
+
+  function $(sel, root) { return (root || document).querySelector(sel); }
+  function $$(sel, root) { return Array.from((root || document).querySelectorAll(sel)); }
+
+  function fmtMoney(n) {
+    if (!isFinite(n)) n = 0;
+    // sl-SI: 1.234,56 €
+    return n.toLocaleString('sl-SI', {
+      minimumFractionDigits: 2, maximumFractionDigits: 2
+    }) + ' €';
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '';
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (!m) return iso;
+    return `${m[3]}.${m[2]}.${m[1]}`;
+  }
+
+  function el(html) {
+    const t = document.createElement('template');
+    t.innerHTML = html.trim();
+    return t.content.firstChild;
+  }
+
+  // ------------------------------------------------------------------ form binding
+  function bindFormFromState() {
+    SCALAR_FIELDS.forEach(k => {
+      const inp = document.getElementById(k);
+      if (inp) inp.value = state[k] || '';
+    });
+    BOOL_FIELDS.forEach(k => {
+      const inp = document.getElementById(k);
+      if (inp) inp.checked = !!state[k];
+    });
+    renderItemsForm();
+  }
+
+  function attachFormListeners() {
+    SCALAR_FIELDS.forEach(k => {
+      const inp = document.getElementById(k);
+      if (!inp) return;
+      inp.addEventListener('input', () => {
+        state[k] = inp.value;
+        saveState();
+        renderPreview();
+      });
+    });
+    BOOL_FIELDS.forEach(k => {
+      const inp = document.getElementById(k);
+      if (!inp) return;
+      inp.addEventListener('change', () => {
+        state[k] = inp.checked;
+        saveState();
+        renderPreview();
+      });
+    });
+
+    $('#btnAddItem').addEventListener('click', () => {
+      state.items.push({ kind: 'item', name: '', desc: '', qty: 1,
+                         unit: 'kos', tax: 22, price: 0 });
+      saveState(); renderItemsForm(); renderPreview();
+    });
+    $('#btnAddDiscount').addEventListener('click', () => {
+      state.items.push({ kind: 'discount', name: 'POPUST', desc: '', pct: 10 });
+      saveState(); renderItemsForm(); renderPreview();
+    });
+
+    $('#btnPrint').addEventListener('click', () => {
+      window.print();
+    });
+
+    $('#btnReset').addEventListener('click', () => {
+      if (!confirm('Reset all fields to the example invoice?')) return;
+      state = JSON.parse(JSON.stringify(defaults));
+      saveState();
+      bindFormFromState();
+      renderPreview();
+    });
+  }
+
+  // ------------------------------------------------------------------ items form
+  function renderItemsForm() {
+    const list = $('#itemsList');
+    list.innerHTML = '';
+    state.items.forEach((it, idx) => {
+      const tplId = it.kind === 'discount' ? '#tplDiscount' : '#tplItem';
+      const tpl = $(tplId).content.firstElementChild.cloneNode(true);
+      hydrateItemCard(tpl, it, idx);
+      list.appendChild(tpl);
+    });
+  }
+
+  function hydrateItemCard(card, it, idx) {
+    if (it.kind === 'discount') {
+      card.querySelector('.js-name').value = it.name || 'POPUST';
+      card.querySelector('.js-desc').value = it.desc || '';
+      card.querySelector('.js-pct').value = it.pct ?? 0;
+    } else {
+      card.querySelector('.js-name').value = it.name || '';
+      card.querySelector('.js-desc').value = it.desc || '';
+      card.querySelector('.js-qty').value = it.qty ?? 0;
+      card.querySelector('.js-unit').value = it.unit || 'kos';
+      card.querySelector('.js-tax').value = String(it.tax ?? 22);
+      card.querySelector('.js-price').value = it.price ?? 0;
+    }
+
+    card.addEventListener('input', e => {
+      const t = e.target;
+      if (it.kind === 'discount') {
+        if (t.classList.contains('js-name')) it.name = t.value;
+        else if (t.classList.contains('js-desc')) it.desc = t.value;
+        else if (t.classList.contains('js-pct')) it.pct = parseFloat(t.value) || 0;
+      } else {
+        if (t.classList.contains('js-name')) it.name = t.value;
+        else if (t.classList.contains('js-desc')) it.desc = t.value;
+        else if (t.classList.contains('js-qty')) it.qty = parseFloat(t.value) || 0;
+        else if (t.classList.contains('js-unit')) it.unit = t.value;
+        else if (t.classList.contains('js-tax')) it.tax = parseFloat(t.value) || 0;
+        else if (t.classList.contains('js-price')) it.price = parseFloat(t.value) || 0;
+      }
+      saveState();
+      renderPreview();
+    });
+
+    card.querySelector('.js-remove').addEventListener('click', () => {
+      state.items.splice(idx, 1);
+      saveState(); renderItemsForm(); renderPreview();
+    });
+    card.querySelector('.js-up').addEventListener('click', () => {
+      if (idx === 0) return;
+      [state.items[idx-1], state.items[idx]] = [state.items[idx], state.items[idx-1]];
+      saveState(); renderItemsForm(); renderPreview();
+    });
+    card.querySelector('.js-down').addEventListener('click', () => {
+      if (idx >= state.items.length - 1) return;
+      [state.items[idx+1], state.items[idx]] = [state.items[idx], state.items[idx+1]];
+      saveState(); renderItemsForm(); renderPreview();
+    });
+  }
+
+  // ------------------------------------------------------------------ calculations
+  function computeRows() {
+    // Returns parallel array of rows with computed sum + tax.
+    // Discount rows reference the previous non-discount row's sum.
+    const rows = [];
+    let lastItemSum = 0;
+    let lastItemTax = 0;
+    state.items.forEach(it => {
+      if (it.kind === 'discount') {
+        const sum = -(lastItemSum * (it.pct / 100));
+        const taxRate = lastItemTax;
+        rows.push({
+          kind: 'discount',
+          name: it.name || 'POPUST',
+          desc: it.desc || '',
+          qty: it.pct,
+          unit: '%',
+          tax: '/',
+          price: lastItemSum,  // for reference
+          sum,
+          taxRate,
+        });
+        // Also accumulate this discount into the lastItemSum for chained tax calc
+        lastItemSum += sum;
+      } else {
+        const sum = (parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0);
+        rows.push({
+          kind: 'item',
+          name: it.name || '',
+          desc: it.desc || '',
+          qty: it.qty || 0,
+          unit: it.unit || 'kos',
+          tax: it.tax === 0 ? '/' : (it.tax === 9.5 ? '9,5%' : `${it.tax}%`),
+          price: it.price || 0,
+          sum,
+          taxRate: it.tax || 0,
+        });
+        lastItemSum = sum;
+        lastItemTax = it.tax || 0;
+      }
+    });
+    return rows;
+  }
+
+  function computeTotals(rows) {
+    let subtotal = 0;
+    const taxByRate = {};    // { '22': ddv amount }
+    const baseByRate = {};   // { '22': base amount taxed at this rate }
+    rows.forEach(r => {
+      subtotal += r.sum;
+      const rate = r.taxRate || 0;
+      if (rate > 0) {
+        baseByRate[rate] = (baseByRate[rate] || 0) + r.sum;
+        taxByRate[rate] = (taxByRate[rate] || 0) + (r.sum * rate / 100);
+      }
+    });
+    const totalTax = Object.values(taxByRate).reduce((a, b) => a + b, 0);
+    return { subtotal, baseByRate, taxByRate, totalTax,
+             total: subtotal + totalTax };
+  }
+
+  // ------------------------------------------------------------------ preview render
+  function renderPreview() {
+    // Scalars / formatted
+    const ctx = Object.assign({}, state);
+    ctx.issueDateFormatted = fmtDate(state.issueDate);
+    ctx.dueDateFormatted = fmtDate(state.dueDate);
+    ctx.serviceDateFormatted = fmtDate(state.serviceDate);
+
+    const rows = computeRows();
+    const totals = computeTotals(rows);
+    const excludeDdv = !!state.excludeDdvFromTotal;
+
+    // Toggle the .exclude-ddv class on the invoice — drives CSS visibility
+    // of the in-totals DDV rows and the reverse-charge block below the
+    // payment box.
+    $('#invoice').classList.toggle('exclude-ddv', excludeDdv);
+
+    ctx.subtotalFormatted = fmtMoney(totals.subtotal);
+    // When DDV is excluded from the total, the big "SKUPAJ ZA PLAČILO"
+    // amount in the blue box equals the base subtotal (no DDV added).
+    ctx.totalFormatted = fmtMoney(excludeDdv ? totals.subtotal : totals.total);
+
+    // Tax label/value: if multiple rates, list each on its own; else inline.
+    const rateKeys = Object.keys(totals.taxByRate);
+    if (rateKeys.length === 0) {
+      ctx.taxLabel = 'DDV';
+      ctx.taxFormatted = fmtMoney(0);
+    } else if (rateKeys.length === 1) {
+      const r = rateKeys[0];
+      const labelR = r === '9.5' ? '9,5%' : `${r}%`;
+      ctx.taxLabel = `DDV - ${labelR}`;
+      ctx.taxFormatted = fmtMoney(totals.taxByRate[r]);
+    } else {
+      // Multiple rates: keep the totals row showing the grand DDV total,
+      // and break out the per-rate detail above the payment block.
+      ctx.taxLabel = 'DDV (skupaj)';
+      ctx.taxFormatted = fmtMoney(totals.totalTax);
+    }
+
+    // Bind scalars to elements with data-bind
+    $$('[data-bind]').forEach(node => {
+      const key = node.getAttribute('data-bind');
+      if (ctx[key] !== undefined && ctx[key] !== null && ctx[key] !== '') {
+        node.textContent = ctx[key];
+      } else if (ctx[key] === '') {
+        node.textContent = '';
+      }
+    });
+
+    // Render items table body
+    const tbody = $('#invoiceItemsBody');
+    tbody.innerHTML = '';
+    rows.forEach(r => {
+      const tr = document.createElement('tr');
+
+      const nameTd = document.createElement('td');
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'name-line';
+      nameDiv.textContent = r.name;
+      nameTd.appendChild(nameDiv);
+      if (r.desc) {
+        r.desc.split('\n').forEach(line => {
+          const d = document.createElement('div');
+          d.className = 'desc-line';
+          d.textContent = line;
+          nameTd.appendChild(d);
+        });
+      }
+      tr.appendChild(nameTd);
+
+      const qtyTd = document.createElement('td');
+      qtyTd.className = 'center';
+      qtyTd.textContent = (r.kind === 'discount')
+        ? (r.qty + '')
+        : Number(r.qty).toLocaleString('sl-SI', {
+            minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      tr.appendChild(qtyTd);
+
+      const unitTd = document.createElement('td');
+      unitTd.className = 'center';
+      unitTd.textContent = r.unit;
+      tr.appendChild(unitTd);
+
+      const taxTd = document.createElement('td');
+      taxTd.className = 'center';
+      taxTd.textContent = r.tax;
+      tr.appendChild(taxTd);
+
+      const priceTd = document.createElement('td');
+      priceTd.className = 'right';
+      priceTd.textContent = (r.kind === 'discount')
+        ? '/'
+        : fmtMoney(r.price);
+      tr.appendChild(priceTd);
+
+      const sumTd = document.createElement('td');
+      sumTd.className = 'right sum-cell' + (r.sum < 0 ? ' is-negative' : '');
+      sumTd.textContent = fmtMoney(r.sum);
+      tr.appendChild(sumTd);
+
+      tbody.appendChild(tr);
+    });
+
+    // Service-info meta lines (above the blue divider/totals)
+    const meta = $('#invoiceMetaLines');
+    meta.innerHTML = '';
+    if (state.serviceLocation) {
+      const row = document.createElement('div');
+      row.className = 'meta-row';
+      const left = document.createElement('span');
+      left.textContent = 'Lokacija izvedbe: ' + state.serviceLocation;
+      row.appendChild(left);
+      meta.appendChild(row);
+    }
+    if (state.serviceDate) {
+      const row = document.createElement('div');
+      row.className = 'meta-row';
+      const left = document.createElement('span');
+      left.textContent = 'Datum izvedbe: ' + fmtDate(state.serviceDate);
+      row.appendChild(left);
+      meta.appendChild(row);
+    }
+
+    // Per-rate DDV rows — one row per rate, between SKUPAJ BREZ DDV and
+    // DDV (skupaj). Only shown when there are multiple rates (otherwise
+    // the single rate is already covered by the DDV row below).
+    const tr = $('#invoiceTaxRates');
+    tr.innerHTML = '';
+    if (rateKeys.length > 1) {
+      rateKeys
+        .sort((a, b) => parseFloat(b) - parseFloat(a))
+        .forEach(r => {
+          const row = document.createElement('div');
+          row.className = 'totals-line';
+          const lab = document.createElement('span');
+          lab.className = 'label';
+          const labelR = r === '9.5' ? '9,5%' : `${r}%`;
+          lab.textContent = `DDV - ${labelR}`;
+          const val = document.createElement('span');
+          val.className = 'value';
+          val.textContent = fmtMoney(totals.taxByRate[r]);
+          row.appendChild(lab);
+          row.appendChild(val);
+          tr.appendChild(row);
+        });
+    }
+
+    // Reverse-charge ("OBRNJENA DAVČNA OBVEZNOST") rows — one per rate.
+    // Visibility of the surrounding section is handled via the
+    // .exclude-ddv class above; we always populate so the table is
+    // ready to display when the user toggles the checkbox.
+    const rcBody = $('#reverseChargeRows');
+    rcBody.innerHTML = '';
+    rateKeys
+      .sort((a, b) => parseFloat(b) - parseFloat(a))
+      .forEach(r => {
+        const row = document.createElement('tr');
+        const labelTd = document.createElement('td');
+        const labelR = r === '9.5' ? '9,5%' : `${r}%`;
+        labelTd.textContent = `DDV ${labelR}`;
+        const baseTd = document.createElement('td');
+        baseTd.className = 'right';
+        baseTd.textContent = fmtMoney(totals.baseByRate[r] || 0);
+        const ddvTd = document.createElement('td');
+        ddvTd.className = 'right';
+        ddvTd.textContent = fmtMoney(totals.taxByRate[r] || 0);
+        row.appendChild(labelTd);
+        row.appendChild(baseTd);
+        row.appendChild(ddvTd);
+        rcBody.appendChild(row);
+      });
+  }
+
+  // ------------------------------------------------------------------ scale preview to fit
+  function fitPreview() {
+    const scaler = $('#previewScaler');
+    const inv = $('#invoice');
+    if (!scaler || !inv) return;
+
+    // Reset to measure natural size
+    scaler.style.setProperty('--preview-scale', 1);
+    scaler.style.setProperty('--preview-offset-x', '0px');
+    scaler.style.height = '';
+
+    const avail = scaler.clientWidth;
+    const naturalW = inv.offsetWidth;
+    const naturalH = inv.offsetHeight;
+
+    let scale = 1;
+    let offsetX = 0;
+    if (naturalW > avail) {
+      // Scale down to fit available width
+      scale = avail / naturalW;
+    } else {
+      // Center the natural-sized invoice within the wider container
+      offsetX = (avail - naturalW) / 2;
+    }
+
+    scaler.style.setProperty('--preview-scale', scale);
+    scaler.style.setProperty('--preview-offset-x', offsetX + 'px');
+    scaler.style.height = (naturalH * scale) + 'px';
+  }
+
+  // ------------------------------------------------------------------ init
+  bindFormFromState();
+  attachFormListeners();
+  renderPreview();
+  fitPreview();
+  window.addEventListener('resize', fitPreview);
+
+})();
+</script>
+
+</body>
+</html>
