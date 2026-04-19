@@ -513,6 +513,28 @@
     margin: 4mm 0 3mm;
   }
 
+  /* Optional Special note section — divider + note text below Sklic.
+     Hidden unless .invoice has the .has-note class (added by JS when
+     state.specialNote is non-empty). The grey line starts at the same
+     left edge as the thin blue divider in the middle and is 75% of the
+     A4 page width (= 157.5mm). The note text is aligned with Sklic via
+     the same --inv-inset padding. */
+  .ref-note-divider,
+  .ref-note { display: none; }
+  .invoice.has-note .ref-note-divider,
+  .invoice.has-note .ref-note { display: block; }
+
+  .ref-note-divider {
+    height: 1px; background: var(--grey-line);
+    width: 157.5mm;
+    margin-top: 4mm;
+  }
+  .ref-note {
+    padding: 2mm var(--inv-inset) 0;
+    font-size: 8.5pt; line-height: 1.5; color: var(--text-dark);
+    white-space: pre-wrap;
+  }
+
   /* ------------------------------------------------------------------ print */
   @page { size: A4 portrait; margin: 0; }
   @media print {
@@ -646,6 +668,11 @@
           <label for="refSklic">Sklic</label>
           <input type="text" id="refSklic" placeholder="5-2026">
         </div>
+      </div>
+      <div class="field">
+        <label for="specialNote">Special note (optional — printed below Sklic)</label>
+        <textarea id="specialNote" rows="2"
+                  placeholder="Leave blank to hide. Multi-line is supported."></textarea>
       </div>
       <label class="checkbox-row" for="excludeDdvFromTotal">
         <input type="checkbox" id="excludeDdvFromTotal">
@@ -797,6 +824,13 @@
                       <img src="assets/signature.svg" alt="">
                     </div>
                   </div>
+
+                  <!-- Optional special note below Sklic. Both the divider
+                       and the note are hidden unless .invoice has the
+                       .has-note class (set by JS when specialNote is non-
+                       empty). -->
+                  <div class="ref-note-divider"></div>
+                  <div class="ref-note" data-bind="specialNote"></div>
                 </div>
 
               </td></tr>
@@ -818,6 +852,21 @@
   </section>
 
 </main>
+
+<!-- Suggestions for the Enota (unit) text input — clients can pick one
+     from this list or type any custom value. -->
+<datalist id="unitSuggestions">
+  <option value="kos">
+  <option value="pcs">
+  <option value="h">
+  <option value="m">
+  <option value="m²">
+  <option value="m³">
+  <option value="kg">
+  <option value="l">
+  <option value="kpl">
+  <option value="paket">
+</datalist>
 
 <!-- ============================================================ TEMPLATE -->
 <template id="tplItem">
@@ -845,12 +894,7 @@
       </div>
       <div class="field">
         <label>Enota</label>
-        <select class="js-unit">
-          <option value="kos">kos</option>
-          <option value="pcs">pcs</option>
-          <option value="h">h</option>
-          <option value="m">m</option>
-        </select>
+        <input class="js-unit" type="text" list="unitSuggestions" placeholder="kos">
       </div>
       <div class="field">
         <label>DDV</label>
@@ -927,6 +971,7 @@
     bankName: 'odprt pri NLB d.d.',
     refModel: '00',
     refSklic: '5-2026',
+    specialNote: '',
     excludeDdvFromTotal: false,
     items: defaultItems,
   };
@@ -951,19 +996,34 @@
     'invoiceLabel', 'invoiceNumber', 'issueCity', 'issueDate', 'dueDate',
     'clientName', 'clientAddress1', 'clientAddress2',
     'serviceLocation', 'serviceDate',
-    'iban', 'bankName', 'refModel', 'refSklic',
+    'iban', 'bankName', 'refModel', 'refSklic', 'specialNote',
   ];
   const BOOL_FIELDS = ['excludeDdvFromTotal'];
 
   function $(sel, root) { return (root || document).querySelector(sel); }
   function $$(sel, root) { return Array.from((root || document).querySelectorAll(sel)); }
 
-  function fmtMoney(n) {
+  // Format a number as Slovenian-style "1.234,56 €". Done manually so it
+  // works in browsers/runtimes without sl-SI ICU locale data, which can
+  // otherwise silently fall back to the user's locale.
+  function fmtNumber(n, fractionDigits) {
     if (!isFinite(n)) n = 0;
-    // sl-SI: 1.234,56 €
-    return n.toLocaleString('sl-SI', {
-      minimumFractionDigits: 2, maximumFractionDigits: 2
-    }) + ' €';
+    const digits = (fractionDigits == null) ? 2 : fractionDigits;
+    const sign = n < 0 ? '−' : '';
+    const fixed = Math.abs(n).toFixed(digits);
+    let intPart, decPart;
+    if (digits > 0) {
+      [intPart, decPart] = fixed.split('.');
+    } else {
+      intPart = fixed; decPart = '';
+    }
+    // Insert "." every three digits from the right
+    const intWithSep = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return sign + intWithSep + (decPart ? ',' + decPart : '');
+  }
+
+  function fmtMoney(n) {
+    return fmtNumber(n, 2) + ' €';
   }
 
   function fmtDate(iso) {
@@ -1173,6 +1233,11 @@
     // payment box.
     $('#invoice').classList.toggle('exclude-ddv', excludeDdv);
 
+    // Toggle the .has-note class — shows the gray divider and special
+    // note text below Sklic when the user has typed something.
+    $('#invoice').classList.toggle('has-note',
+                                   !!(state.specialNote || '').trim());
+
     ctx.subtotalFormatted = fmtMoney(totals.subtotal);
     // When DDV is excluded from the total, the big "SKUPAJ ZA PLAČILO"
     // amount in the blue box equals the base subtotal (no DDV added).
@@ -1230,8 +1295,7 @@
       qtyTd.className = 'center';
       qtyTd.textContent = (r.kind === 'discount')
         ? (r.qty + '')
-        : Number(r.qty).toLocaleString('sl-SI', {
-            minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        : fmtNumber(Number(r.qty), 2);
       tr.appendChild(qtyTd);
 
       const unitTd = document.createElement('td');
