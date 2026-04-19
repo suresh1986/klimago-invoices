@@ -248,11 +248,16 @@
     .invoice { transform-origin: top center; }
   }
 
-  /* Background ornaments — left and right dotted strips */
+  /* Background ornaments — left and right dotted strips. On screen, they
+     span the full .invoice height (which can grow for multi-page).
+     In print mode, they switch to position:fixed so each printed page
+     gets a full-height strip even when the last page's content is short
+     and would otherwise leave the lower half of the page bare. */
   .ornament {
     position: absolute; top: 0; bottom: 0; width: 14mm;
     pointer-events: none; user-select: none;
     background-repeat: repeat-y; background-size: 100% auto;
+    z-index: 0;
   }
   .ornament-left { left: 0; background-image: url("assets/ornaments-left.svg"); }
   .ornament-right { right: 0; background-image: url("assets/ornaments-right.svg"); }
@@ -290,6 +295,10 @@
   .inv-client .client .name { font-weight: 700; font-size: 11pt; }
   .inv-client .dates { text-align: right; line-height: 1.5; font-size: 9pt; }
   .inv-client .dates .due-label { font-weight: 700; }
+  /* Tax ID line is rendered as data-bind to "clientTaxIdLine" which is
+     empty when no tax id is set — :empty hides the empty div so the
+     field doesn't take any vertical space. */
+  .client-tax-id:empty { display: none; }
 
   /* Items table — header background spans the FULL content width (same
      as top blue divider). Cell text is inset by --inv-inset on the
@@ -528,8 +537,13 @@
 
   .ref-note-divider {
     height: 1px; background: var(--grey-line);
-    width: 105mm; max-width: 100%;
+    width: 105mm;
+    /* Pull the line left by the .ref column's inset padding so its left
+       edge aligns with the blue dividers above (which sit at the
+       .invoice content edge, not at the --inv-inset boundary). */
     margin-top: 3mm;
+    margin-left: calc(-1 * var(--inv-inset));
+    max-width: calc(100% + var(--inv-inset));
   }
   .ref-note {
     padding-top: 2mm;
@@ -557,16 +571,33 @@
       overflow: visible;
     }
     /* In print, allow the table cells to break across pages and let
-       thead/tfoot repeat. */
+       thead repeat at the top of every page. */
     .page-layout, .page-layout > tbody, .page-layout > tbody > tr,
     .page-layout > tbody > tr > td {
       page-break-inside: auto;
       break-inside: auto;
     }
     .page-layout > thead { display: table-header-group; }
-    .page-layout > tfoot { display: table-footer-group; }
     /* Don't split a single item row across pages */
     .inv-table tbody tr { page-break-inside: avoid; break-inside: avoid; }
+    /* The tfoot reserves 28mm at the bottom of EVERY page (table-footer-
+       group default behavior), and the .inv-footer inside it is
+       position:fixed so it lands at the physical bottom of every page.
+       Together this guarantees the footer is at page bottom even when
+       the last page's content is short. */
+    .page-footer-cell { padding: 0; height: 28mm; }
+    .page-footer-cell .inv-footer {
+      position: fixed;
+      bottom: 0; left: 16mm; right: 16mm;
+      width: auto;
+    }
+    /* Ornaments in print: position:fixed so each printed page shows a
+       full-height left/right dotted strip, regardless of how much
+       content the page has. */
+    .ornament {
+      position: fixed;
+      top: 0; bottom: 0;
+    }
     /* force background colors to print */
     * { -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important; }
@@ -627,6 +658,10 @@
       <div class="field">
         <label for="clientAddress2">Address line 2</label>
         <input type="text" id="clientAddress2" placeholder="1000 Ljubljana">
+      </div>
+      <div class="field">
+        <label for="clientTaxId">Tax ID (optional — printed as "ID za DDV: …")</label>
+        <input type="text" id="clientTaxId" placeholder="SI 40673049">
       </div>
     </div>
 
@@ -731,6 +766,7 @@
                     <div class="name" data-bind="clientName">CLIENT NAME</div>
                     <div data-bind="clientAddress1">Address line 1</div>
                     <div data-bind="clientAddress2">Address line 2</div>
+                    <div class="client-tax-id" data-bind="clientTaxIdLine"></div>
                   </div>
                   <div class="dates">
                     <div><span data-bind="issueCity">Mengeš</span>, <span data-bind="issueDateFormatted">10.04.2026</span></div>
@@ -964,6 +1000,7 @@
     clientName: 'MARIJA HORVAT',
     clientAddress1: 'Kunaverjeva ulica 3',
     clientAddress2: '1000 Ljubljana',
+    clientTaxId: '',
     serviceLocation: 'Kunaverjeva ulica 3, 1000 Ljubljana',
     serviceDate: '2026-03-20',
     iban: 'SI56 0284 3026 6445 018',
@@ -993,7 +1030,7 @@
   // ------------------------------------------------------------------ helpers
   const SCALAR_FIELDS = [
     'invoiceLabel', 'invoiceNumber', 'issueCity', 'issueDate', 'dueDate',
-    'clientName', 'clientAddress1', 'clientAddress2',
+    'clientName', 'clientAddress1', 'clientAddress2', 'clientTaxId',
     'serviceLocation', 'serviceDate',
     'iban', 'bankName', 'refModel', 'refSklic', 'specialNote',
   ];
@@ -1222,6 +1259,10 @@
     ctx.issueDateFormatted = fmtDate(state.issueDate);
     ctx.dueDateFormatted = fmtDate(state.dueDate);
     ctx.serviceDateFormatted = fmtDate(state.serviceDate);
+    // Prefix tax ID with "ID za DDV: " so the bound div renders the full
+    // line; when empty, the div ends up empty and CSS :empty hides it.
+    ctx.clientTaxIdLine = (state.clientTaxId || '').trim()
+      ? 'ID za DDV: ' + state.clientTaxId.trim() : '';
 
     const rows = computeRows();
     const totals = computeTotals(rows);
