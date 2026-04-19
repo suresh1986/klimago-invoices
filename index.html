@@ -230,6 +230,19 @@
   .page-body-cell { padding: 0 16mm; }
   .page-footer-cell { padding: 0 16mm 12mm; }
 
+  /* Pin the footer to the bottom of the .invoice card on screen so it
+     doesn't follow content with empty space below it. In print, the
+     tfoot auto-repeats at the page bottom on every page (handled by
+     the browser's table-footer-group rendering), so we leave that
+     mode alone. */
+  @media screen {
+    .page-footer-cell { padding: 0; height: 0; }
+    .page-footer-cell .inv-footer {
+      position: absolute;
+      left: 16mm; right: 16mm; bottom: 12mm;
+    }
+  }
+
   /* Scale invoice down on small screens for preview only */
   @media (max-width: 1100px) {
     .invoice { transform-origin: top center; }
