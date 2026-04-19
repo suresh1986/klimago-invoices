@@ -425,7 +425,10 @@
     margin-top: 3mm;
     padding: 0 var(--inv-inset);
   }
-  .inv-bottom .ref { font-size: 8.5pt; line-height: 1.6; color: var(--text-dark); }
+  .inv-bottom .ref {
+    font-size: 8.5pt; line-height: 1.6; color: var(--text-dark);
+    flex: 1; min-width: 0;
+  }
   .inv-bottom .signature {
     flex-shrink: 0; width: 45mm; height: 45mm;
     display: flex; align-items: center; justify-content: center;
@@ -513,12 +516,11 @@
     margin: 4mm 0 3mm;
   }
 
-  /* Optional Special note section — divider + note text below Sklic.
-     Hidden unless .invoice has the .has-note class (added by JS when
-     state.specialNote is non-empty). The grey line starts at the same
-     left edge as the thin blue divider in the middle and is 75% of the
-     A4 page width (= 157.5mm). The note text is aligned with Sklic via
-     the same --inv-inset padding. */
+  /* Optional Special note section — divider + note text inside .ref,
+     directly below the Sklic line. Hidden unless .invoice has the
+     .has-note class (added by JS when state.specialNote is non-empty).
+     The grey line is 50% of the A4 page width (= 105mm) but capped at
+     the .ref column width so it doesn't overflow into the signature. */
   .ref-note-divider,
   .ref-note { display: none; }
   .invoice.has-note .ref-note-divider,
@@ -526,11 +528,11 @@
 
   .ref-note-divider {
     height: 1px; background: var(--grey-line);
-    width: 157.5mm;
-    margin-top: 4mm;
+    width: 105mm; max-width: 100%;
+    margin-top: 3mm;
   }
   .ref-note {
-    padding: 2mm var(--inv-inset) 0;
+    padding-top: 2mm;
     font-size: 8.5pt; line-height: 1.5; color: var(--text-dark);
     white-space: pre-wrap;
   }
@@ -819,18 +821,15 @@
                       <div>Referenca prejemnika: SI</div>
                       <div>Model: <span data-bind="refModel">00</span></div>
                       <div>Sklic: <span data-bind="refSklic">5-2026</span></div>
+                      <!-- Optional special note below Sklic. Hidden
+                           unless .invoice has the .has-note class. -->
+                      <div class="ref-note-divider"></div>
+                      <div class="ref-note" data-bind="specialNote"></div>
                     </div>
                     <div class="signature">
                       <img src="assets/signature.svg" alt="">
                     </div>
                   </div>
-
-                  <!-- Optional special note below Sklic. Both the divider
-                       and the note are hidden unless .invoice has the
-                       .has-note class (set by JS when specialNote is non-
-                       empty). -->
-                  <div class="ref-note-divider"></div>
-                  <div class="ref-note" data-bind="specialNote"></div>
                 </div>
 
               </td></tr>
