@@ -328,8 +328,8 @@
   .inv-table tbody td:last-child {
     padding-right: var(--inv-inset);
   }
-  .inv-table tbody td.center { text-align: center; }
-  .inv-table tbody td.right { text-align: right; }
+  .inv-table tbody td.center { text-align: center; white-space: nowrap; }
+  .inv-table tbody td.right { text-align: right; white-space: nowrap; }
   .inv-table .name-line { font-weight: 700; color: var(--text-dark); font-size: 8pt; }
   .inv-table .desc-line { color: var(--text-muted); font-size: 7pt; margin-top: 1px; }
   .inv-table .sum-cell { color: var(--brand-blue); font-weight: 700; }
@@ -344,29 +344,39 @@
 
   /* Totals */
   .inv-totals { margin-top: 2mm; }
+  /* Two-column row: label fills the left (right-aligned so its right
+     edge hugs the value column's left edge), value is a fixed 21.5mm
+     wide slot. That 21.5mm equals the distance between the CENA column
+     right edge and the SKUPAJ column content right edge, so:
+       - the value's right edge aligns with SKUPAJ column values above,
+       - the label's right edge aligns with the CENA column right edge. */
   .totals-line {
-    display: flex; justify-content: flex-end; gap: 4mm;
+    display: flex; justify-content: flex-end; gap: 0;
     padding: 3px var(--inv-inset);
     font-size: 9pt;
   }
   .totals-line .label {
+    flex: 1 1 auto;
+    text-align: right;
     color: var(--text-dark); font-size: 7pt; font-weight: 400;
   }
   /* Amounts on the right match line-item amounts: 8pt bold. */
   .totals-line .value {
-    min-width: 28mm; text-align: right; color: var(--text-dark);
+    flex: 0 0 21.5mm;
+    text-align: right; color: var(--text-dark);
     font-size: 8pt; font-weight: 700;
   }
 
   /* Grey line between SKUPAJ BREZ DDV and the DDV rows. Lives inside
-     .totals-right (the right column) but extends --inv-inset past
-     its right edge via negative margin so it lines up with the thin
-     blue divider above (which spans the full .invoice content edge,
-     not the --inv-inset boundary that SKUPAJ value ends at). */
+     .totals-right but right-aligned and extending --inv-inset past its
+     right edge via negative margin so it lines up with the thin blue
+     divider above. Width = DDV + CENA + SKUPAJ table-column widths
+     (11 + 18 + 32 = 61mm) so the line's LEFT edge aligns with the DDV
+     column header left. */
   .totals-grey-divider {
     height: 1px; background: var(--grey-line);
-    margin: 3px 0;
-    width: calc(100% + var(--inv-inset));
+    margin: 3px 0 3px auto;
+    width: 61mm;
     margin-right: calc(-1 * var(--inv-inset));
   }
 
