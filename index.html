@@ -1562,10 +1562,18 @@
   // where caller appends per-page content.
   function makePdfPage() {
     const page = document.createElement('article');
-    // 210mm × 297mm, flex column so footer sits at the bottom and the
+    // 210mm × 295mm, flex column so footer sits at the bottom and the
     // body (between header and footer) gets all remaining space.
+    //
+    // Note: we use 295mm instead of 297mm here as a 2mm safety buffer.
+    // html2canvas rounds CSS-mm-to-px UP to the nearest integer pixel,
+    // which makes the rendered canvas ~1px taller than exactly N A4
+    // pages. html2pdf then emits an extra blank page for that overflow.
+    // Shrinking each page by 2mm guarantees the stack total stays
+    // strictly under N × A4 height. Visual impact is negligible — the
+    // footer sits 2mm above the A4 bottom edge instead of flush.
     page.style.cssText =
-      'width:210mm; height:297mm; position:relative; overflow:hidden;' +
+      'width:210mm; height:295mm; position:relative; overflow:hidden;' +
       ' background:#fff; margin:0; padding:0;' +
       ' display:flex; flex-direction:column;' +
       ' font-size:9.5pt; color:#333;' +
