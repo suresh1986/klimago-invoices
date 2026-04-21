@@ -501,11 +501,18 @@
      default. Toggled on by adding .exclude-ddv to .invoice. */
   .inv-reverse-charge,
   .inv-divider-grey { display: none; }
-  .invoice.exclude-ddv .inv-reverse-charge { display: block; }
-  .invoice.exclude-ddv .inv-divider-grey { display: block; }
-  /* Hide the in-totals DDV rows when reverse-charge mode is on */
+  .invoice.exclude-ddv .inv-reverse-charge,
+  .pdf-page.exclude-ddv .inv-reverse-charge { display: block; }
+  .invoice.exclude-ddv .inv-divider-grey,
+  .pdf-page.exclude-ddv .inv-divider-grey { display: block; }
+  /* Hide the in-totals DDV rows when reverse-charge mode is on. Note
+     this matches by descendant — the cloned .last-page-section in iOS
+     PDF mode still uses the same #invoiceTaxRates id, so we match by
+     class to also cover the (id-less) cloned per-rate rows. */
   .invoice.exclude-ddv #invoiceTaxRates,
-  .invoice.exclude-ddv .totals-line.tax { display: none; }
+  .invoice.exclude-ddv .totals-line.tax,
+  .pdf-page.exclude-ddv #invoiceTaxRates,
+  .pdf-page.exclude-ddv .totals-line.tax { display: none; }
 
   .inv-reverse-charge {
     margin-top: 5mm;
@@ -556,7 +563,9 @@
   .ref-note-divider,
   .ref-note { display: none; }
   .invoice.has-note .ref-note-divider,
-  .invoice.has-note .ref-note { display: block; }
+  .invoice.has-note .ref-note,
+  .pdf-page.has-note .ref-note-divider,
+  .pdf-page.has-note .ref-note { display: block; }
 
   .ref-note-divider {
     height: 1px; background: var(--grey-line);
@@ -1141,7 +1150,27 @@
       saveState(); renderItemsForm(); renderPreview();
     });
 
-    $('#btnPrint').addEventListener('click', () => {
+    $('#btnPrint').addEventListener('click', async () => {
+      // iOS Safari (and iPadOS) silently drop position:fixed in print and
+      // mishandle <thead>/<tfoot> page-repeat — the resulting PDF has the
+      // ornaments stuck mid-page and the footer missing. Detect iOS and
+      // render the PDF programmatically with html2pdf instead.
+      if (isIOS()) {
+        const btn = $('#btnPrint');
+        const originalLabel = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Pripravljam PDF…';
+        try {
+          await generatePdfIOS();
+        } catch (err) {
+          console.error('iOS PDF generation failed:', err);
+          alert('PDF generation failed: ' + (err && err.message ? err.message : err));
+        } finally {
+          btn.disabled = false;
+          btn.textContent = originalLabel;
+        }
+        return;
+      }
       window.print();
     });
 
@@ -1496,6 +1525,270 @@
     scaler.style.setProperty('--preview-scale', scale);
     scaler.style.setProperty('--preview-offset-x', offsetX + 'px');
     scaler.style.height = (naturalH * scale) + 'px';
+  }
+
+  // ------------------------------------------------------------------ iOS PDF generation
+  // iPhone / iPad Safari (and iPadOS Chrome, since it uses WebKit too)
+  // mishandle the print-mode CSS this template relies on
+  // (position:fixed for ornaments + footer, table tfoot/thead repeat).
+  // For those browsers we render each page to a canvas via html2canvas
+  // and assemble a real PDF via jsPDF. Library is lazy-loaded only when
+  // needed so non-iOS users don't pay the ~900KB cost.
+  function isIOS() {
+    const ua = navigator.userAgent || '';
+    if (/iPad|iPhone|iPod/.test(ua)) return true;
+    // iPadOS 13+ reports MacIntel + multi-touch
+    return navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1;
+  }
+
+  let _html2pdfLoadPromise = null;
+  function loadHtml2Pdf() {
+    if (window.html2pdf) return Promise.resolve();
+    if (_html2pdfLoadPromise) return _html2pdfLoadPromise;
+    _html2pdfLoadPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'assets/html2pdf.bundle.min.js';
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('Could not load assets/html2pdf.bundle.min.js'));
+      document.head.appendChild(s);
+    });
+    return _html2pdfLoadPromise;
+  }
+
+  // Build one A4-sized page div. The header (logo + thin blue divider)
+  // and the footer (thin blue + footer-text image) and the left/right
+  // ornaments are baked into every page so they appear identically on
+  // page 1, page N. Returns { page, body } — body is the inner div
+  // where caller appends per-page content.
+  function makePdfPage() {
+    const page = document.createElement('article');
+    // 210mm × 297mm, flex column so footer sits at the bottom and the
+    // body (between header and footer) gets all remaining space.
+    page.style.cssText =
+      'width:210mm; height:297mm; position:relative; overflow:hidden;' +
+      ' background:#fff; margin:0; padding:0;' +
+      ' display:flex; flex-direction:column;' +
+      ' font-size:9.5pt; color:#333;' +
+      ' font-family:' + (getComputedStyle(document.body).fontFamily || 'sans-serif') + ';';
+
+    // Ornaments — position:absolute against this page, so they cover its
+    // full height (the existing screen-mode .ornament rule does exactly
+    // this; html2canvas captures screen-mode CSS, not @media print).
+    const ornL = document.createElement('div');
+    ornL.className = 'ornament ornament-left';
+    page.appendChild(ornL);
+    const ornR = document.createElement('div');
+    ornR.className = 'ornament ornament-right';
+    page.appendChild(ornR);
+
+    // Header strip — logo + thin blue divider (matches the .page-header-cell
+    // padding from the screen template).
+    const headerWrap = document.createElement('div');
+    headerWrap.style.cssText =
+      'flex:0 0 auto; padding:18mm 16mm 0; position:relative; z-index:1;';
+    headerWrap.innerHTML =
+      '<header class="inv-header">' +
+        '<div class="inv-logo"><img src="assets/logo.svg" alt="KLIMAGO"></div>' +
+      '</header>' +
+      '<div class="inv-divider"></div>';
+    page.appendChild(headerWrap);
+
+    // Body — fills remaining vertical space, content overflow is clipped
+    // (we paginate in JS so nothing should actually overflow).
+    const body = document.createElement('div');
+    body.style.cssText =
+      'flex:1 1 auto; padding:0 16mm; position:relative; z-index:1;' +
+      ' overflow:hidden; min-height:0;';
+    page.appendChild(body);
+
+    // Footer strip — thin blue + footer-text image. Sits at the physical
+    // bottom of the page because of the flex column.
+    const footerWrap = document.createElement('div');
+    footerWrap.style.cssText =
+      'flex:0 0 auto; padding:0 16mm 12mm; position:relative; z-index:1;';
+    footerWrap.innerHTML =
+      '<div class="inv-footer">' +
+        '<div class="footer-divider"></div>' +
+        '<div class="footer-text"></div>' +
+      '</div>';
+    page.appendChild(footerWrap);
+
+    return { page, body };
+  }
+
+  // Build the items table skeleton (header + empty tbody) for a page.
+  // The thead matches the original .inv-table thead exactly so the
+  // continuation pages look like the first page's items table.
+  function makeItemsTableSkeleton() {
+    const wrap = document.createElement('div');
+    wrap.className = 'inv-table-wrap';
+    wrap.innerHTML =
+      '<table class="inv-table">' +
+        '<thead><tr>' +
+          '<th>STORITEV</th>' +
+          '<th class="center" style="width:14mm">KOLIČINA</th>' +
+          '<th class="center" style="width:11mm">ENOTA</th>' +
+          '<th class="center" style="width:11mm">DDV</th>' +
+          '<th class="right" style="width:18mm">CENA</th>' +
+          '<th class="right" style="width:32mm">SKUPAJ</th>' +
+        '</tr></thead>' +
+        '<tbody></tbody>' +
+      '</table>';
+    return { wrap, tbody: wrap.querySelector('tbody') };
+  }
+
+  // Returns true if any descendant of `body` overflows beyond its
+  // visible client height. Used to decide when to start a new page.
+  function bodyOverflows(body) {
+    return body.scrollHeight > body.clientHeight + 1;
+  }
+
+  // Build N page DOMs containing the current invoice content paginated
+  // across A4 pages. Inserts pages into `host` (offscreen) so we can
+  // measure layout, then returns the page elements in order.
+  function buildPdfPages(host) {
+    // Clone the source content from the live preview so any in-progress
+    // edits are reflected.
+    const srcInvoice = $('#invoice');
+    const srcClient = srcInvoice.querySelector('.inv-client');
+    const srcInvNumber = srcInvoice.querySelector('.inv-number');
+    const srcItemsRows = $$('#invoiceItemsBody > tr');
+    const srcLastSection = srcInvoice.querySelector('.last-page-section');
+    const isExcludeDdv = srcInvoice.classList.contains('exclude-ddv');
+    const hasNote = srcInvoice.classList.contains('has-note');
+
+    const pages = [];
+
+    function startNewPage(opts) {
+      const { page, body } = makePdfPage();
+      // Tag with .pdf-page now (rather than after the fact) so the
+      // .pdf-page.exclude-ddv / .pdf-page.has-note conditional CSS
+      // matches BEFORE we measure overflow.
+      page.classList.add('pdf-page');
+      // Mirror the .invoice modifier classes onto the page so descendant
+      // CSS (.exclude-ddv, .has-note, etc.) keeps working when content
+      // is cloned.
+      if (isExcludeDdv) page.classList.add('exclude-ddv');
+      if (hasNote) page.classList.add('has-note');
+      host.appendChild(page);
+
+      // First page only: client section + Račun št. label.
+      if (opts && opts.first) {
+        if (srcClient) body.appendChild(srcClient.cloneNode(true));
+        if (srcInvNumber) page.appendChild(srcInvNumber.cloneNode(true));
+      }
+
+      // Items table skeleton (every page that holds items needs one).
+      const { wrap, tbody } = makeItemsTableSkeleton();
+      body.appendChild(wrap);
+
+      pages.push({ page, body, itemsTbody: tbody, itemsWrap: wrap });
+      return pages[pages.length - 1];
+    }
+
+    // Page 1
+    let cur = startNewPage({ first: true });
+
+    // Place item rows one by one, splitting onto a new page when overflow.
+    for (const row of srcItemsRows) {
+      const clone = row.cloneNode(true);
+      cur.itemsTbody.appendChild(clone);
+      if (bodyOverflows(cur.body)) {
+        cur.itemsTbody.removeChild(clone);
+        // If the very-first item on a fresh page already overflows, the
+        // row itself is taller than a page — keep it anyway to avoid an
+        // infinite loop. (Shouldn't happen with normal invoice rows.)
+        if (cur.itemsTbody.children.length === 0) {
+          cur.itemsTbody.appendChild(clone);
+          continue;
+        }
+        cur = startNewPage();
+        cur.itemsTbody.appendChild(clone);
+      }
+    }
+
+    // Try to drop the last-page-section (totals, payment, ref/sig,
+    // reverse-charge) onto the current page. If it doesn't fit, move it
+    // to a brand-new last page (no items table on that page).
+    if (srcLastSection) {
+      const lastClone = srcLastSection.cloneNode(true);
+      cur.body.appendChild(lastClone);
+      if (bodyOverflows(cur.body)) {
+        cur.body.removeChild(lastClone);
+        cur = startNewPage();
+        // Remove the empty items table from this trailing page so the
+        // last-page-section is the only body content.
+        cur.itemsWrap.remove();
+        cur.body.appendChild(lastClone);
+      }
+    }
+
+    return pages.map(p => p.page);
+  }
+
+  async function generatePdfIOS() {
+    await loadHtml2Pdf();
+    if (!window.html2pdf) {
+      throw new Error('html2pdf bundle did not expose window.html2pdf');
+    }
+
+    // Offscreen host so the layout engine measures real heights but the
+    // user never sees the staging area.
+    const host = document.createElement('div');
+    host.style.cssText =
+      'position:fixed; left:-99999px; top:0; width:210mm; visibility:visible;' +
+      ' z-index:-1; pointer-events:none;';
+    document.body.appendChild(host);
+
+    // Stack the per-page divs inside a single container so html2pdf can
+    // render them in one pass and emit page breaks between .pdf-page-stack
+    // children via the pagebreak plugin.
+    const stack = document.createElement('div');
+    stack.className = 'pdf-page-stack';
+    stack.style.cssText = 'width:210mm; margin:0; padding:0;';
+    host.appendChild(stack);
+
+    try {
+      const pageEls = buildPdfPages(stack);
+      // Tag every page after the first with the class the pagebreak
+      // plugin keys on to insert a hard page break. (Page 1 is
+      // naturally the first PDF page so it doesn't need a break.)
+      pageEls.forEach((p, i) => {
+        if (i > 0) p.classList.add('pdf-page-break');
+      });
+
+      // Wait a frame so SVG background-images / <img> sources resolve
+      // before html2canvas snapshots.
+      await new Promise(r => requestAnimationFrame(() => r()));
+      const imgs = host.querySelectorAll('img');
+      await Promise.all(Array.from(imgs).map(img =>
+        img.complete ? Promise.resolve() : new Promise(res => {
+          img.addEventListener('load', res, { once: true });
+          img.addEventListener('error', res, { once: true });
+        })
+      ));
+
+      const num = (state.invoiceNumber || 'invoice').replace(/[^A-Za-z0-9-]/g, '-');
+      const opts = {
+        margin: 0,
+        filename: 'racun-' + num + '.pdf',
+        image: { type: 'jpeg', quality: 0.95 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#ffffff',
+          logging: false,
+          windowWidth: 210 * 96 / 25.4,  // 210mm in CSS px @96dpi
+        },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['css'], before: '.pdf-page-break' },
+      };
+
+      await window.html2pdf().set(opts).from(stack).save();
+    } finally {
+      host.remove();
+    }
   }
 
   // ------------------------------------------------------------------ init
