@@ -350,10 +350,13 @@
     font-size: 9pt;
   }
   .totals-line .label {
-    color: var(--text-dark); font-size: 7pt; font-weight: 700;
+    color: var(--text-dark); font-size: 7pt; font-weight: 400;
   }
-  .totals-line .value { min-width: 28mm; text-align: right; color: var(--text-dark); }
-  .totals-line.tax .value { font-weight: 700; }
+  /* Amounts on the right match line-item amounts: 8pt bold. */
+  .totals-line .value {
+    min-width: 28mm; text-align: right; color: var(--text-dark);
+    font-size: 8pt; font-weight: 700;
+  }
 
   /* Grey line between SKUPAJ BREZ DDV and the DDV rows. Lives inside
      .totals-right (the right column) but extends --inv-inset past
@@ -399,16 +402,6 @@
      applies --inv-inset on both sides. */
   .totals-right .totals-line { padding-left: 0; padding-right: 0; }
   #invoiceTaxRates .totals-line { padding-top: 1px; padding-bottom: 1px; }
-  /* Per-rate DDV rows: the "DDV - 22%" label should NOT be bold and
-     should match the font size of the EUR amount on the right (9pt).
-     Likewise the per-rate amount itself stays non-bold (only the
-     DDV (skupaj) row below uses bold). */
-  #invoiceTaxRates .totals-line .label {
-    font-size: 9pt; font-weight: 400;
-  }
-  #invoiceTaxRates .totals-line .value {
-    font-weight: 400;
-  }
 
   .inv-meta-lines {
     margin: 4mm 0 5mm;
