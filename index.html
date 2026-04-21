@@ -158,9 +158,10 @@
     align-items: end;
   }
   .item-grid .col-name { grid-column: 1 / -1; }
-  .item-grid input, .item-grid select { padding: 6px 8px; font-size: 13px; }
+  .item-grid input, .item-grid textarea, .item-grid select { padding: 6px 8px; font-size: 13px; }
+  .item-grid textarea { font-family: inherit; resize: vertical; }
   @media (max-width: 600px) {
-    .item-grid input, .item-grid select { font-size: 16px; padding: 8px 10px; }
+    .item-grid input, .item-grid textarea, .item-grid select { font-size: 16px; padding: 8px 10px; }
     .item-grid { grid-template-columns: 1fr 1fr; }
   }
 
@@ -354,17 +355,21 @@
   .totals-line .value { min-width: 28mm; text-align: right; color: var(--text-dark); }
   .totals-line.tax .value { font-weight: 700; }
 
-  /* Grey line between SKUPAJ BREZ DDV and the DDV rows.
-     45% of page width, right edge aligned with the blue lines above
-     (which span the full .invoice content area). */
+  /* Grey line between SKUPAJ BREZ DDV and the DDV rows. Lives inside
+     .totals-right (the right column) but extends --inv-inset past
+     its right edge via negative margin so it lines up with the thin
+     blue divider above (which spans the full .invoice content edge,
+     not the --inv-inset boundary that SKUPAJ value ends at). */
   .totals-grey-divider {
     height: 1px; background: var(--grey-line);
-    width: 45%; margin: 3px 0 3px auto;
+    margin: 3px 0;
+    width: calc(100% + var(--inv-inset));
+    margin-right: calc(-1 * var(--inv-inset));
   }
 
-  /* Below the grey line: service info on the LEFT, DDV rows on the
-     RIGHT — both vertically aligned to the top so service info sits
-     beside the per-rate rows rather than pushing them down. */
+  /* Service info on the LEFT, totals stack on the RIGHT, both
+     top-aligned so "Lokacija izvedbe" sits at the same level as
+     SKUPAJ BREZ DDV. */
   .totals-split {
     display: flex;
     justify-content: space-between;
@@ -376,16 +381,34 @@
     font-size: 8pt;
     line-height: 1.5;
     color: var(--text-dark);
+    /* Both columns are top-aligned by .totals-split (flex-start) so
+       "Lokacija izvedbe" sits at the same level as SKUPAJ BREZ DDV. */
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: break-word;
   }
   .totals-right {
-    /* shrink to fit so the totals-line right-alignment still works */
-    margin-left: auto;
+    /* Fixed-width right column. Same width as the previous grey
+       divider (45% of the .invoice content area) so SKUPAJ BREZ DDV
+       and the DDV rows stay where they were horizontally. */
+    flex: 0 0 45%;
+    max-width: 45%;
   }
   /* Per-rate DDV rows + the DDV (skupaj) row inside .totals-right —
      no horizontal padding because the parent .totals-split already
      applies --inv-inset on both sides. */
   .totals-right .totals-line { padding-left: 0; padding-right: 0; }
   #invoiceTaxRates .totals-line { padding-top: 1px; padding-bottom: 1px; }
+  /* Per-rate DDV rows: the "DDV - 22%" label should NOT be bold and
+     should match the font size of the EUR amount on the right (9pt).
+     Likewise the per-rate amount itself stays non-bold (only the
+     DDV (skupaj) row below uses bold). */
+  #invoiceTaxRates .totals-line .label {
+    font-size: 9pt; font-weight: 400;
+  }
+  #invoiceTaxRates .totals-line .value {
+    font-weight: 400;
+  }
 
   .inv-meta-lines {
     margin: 4mm 0 5mm;
@@ -668,8 +691,8 @@
     <div class="panel" style="margin-top:14px">
       <h2>Service info (optional)</h2>
       <div class="field">
-        <label for="serviceLocation">Lokacija izvedbe</label>
-        <input type="text" id="serviceLocation" placeholder="Kunaverjeva ulica 3, 1000 Ljubljana">
+        <label for="serviceLocation">Lokacija izvedbe (multi-line — press Enter to break)</label>
+        <textarea id="serviceLocation" rows="2" placeholder="Kunaverjeva ulica 3, 1000 Ljubljana"></textarea>
       </div>
       <div class="field">
         <label for="serviceDate">Datum izvedbe</label>
@@ -798,14 +821,14 @@
                   <div class="inv-divider-thin"></div>
 
                   <div class="inv-totals">
-                    <div class="totals-line subtotal">
-                      <span class="label">SKUPAJ BREZ DDV</span>
-                      <span class="value" data-bind="subtotalFormatted">0,00 €</span>
-                    </div>
-                    <div class="totals-grey-divider"></div>
                     <div class="totals-split">
                       <div class="totals-meta" id="invoiceMetaLines"></div>
                       <div class="totals-right">
+                        <div class="totals-line subtotal">
+                          <span class="label">SKUPAJ BREZ DDV</span>
+                          <span class="value" data-bind="subtotalFormatted">0,00 €</span>
+                        </div>
+                        <div class="totals-grey-divider"></div>
                         <div id="invoiceTaxRates"></div>
                         <div class="totals-line tax">
                           <span class="label" data-bind="taxLabel">DDV</span>
@@ -916,8 +939,8 @@
     </div>
     <div class="item-grid">
       <div class="field col-name" style="grid-column:1/-1">
-        <label>Name</label>
-        <input class="js-name" type="text" placeholder="ITEM NAME">
+        <label>Name (multi-line — press Enter to break)</label>
+        <textarea class="js-name" rows="1" placeholder="ITEM NAME"></textarea>
       </div>
       <div class="field col-name" style="grid-column:1/-1">
         <label>Description (optional)</label>
@@ -1319,7 +1342,13 @@
       const nameTd = document.createElement('td');
       const nameDiv = document.createElement('div');
       nameDiv.className = 'name-line';
-      nameDiv.textContent = r.name;
+      // Render the item name with manual line breaks. Client uses
+      // newlines in the textarea to wrap long product names cleanly.
+      const nameLines = (r.name || '').split('\n');
+      nameLines.forEach((line, i) => {
+        if (i > 0) nameDiv.appendChild(document.createElement('br'));
+        nameDiv.appendChild(document.createTextNode(line));
+      });
       nameTd.appendChild(nameDiv);
       if (r.desc) {
         r.desc.split('\n').forEach(line => {
@@ -1370,7 +1399,13 @@
       const row = document.createElement('div');
       row.className = 'meta-row';
       const left = document.createElement('span');
-      left.textContent = 'Lokacija izvedbe: ' + state.serviceLocation;
+      // Multi-line: client controls where the address wraps via newlines.
+      const locLines = state.serviceLocation.split('\n');
+      left.appendChild(document.createTextNode('Lokacija izvedbe: ' + locLines[0]));
+      for (let i = 1; i < locLines.length; i++) {
+        left.appendChild(document.createElement('br'));
+        left.appendChild(document.createTextNode(locLines[i]));
+      }
       row.appendChild(left);
       meta.appendChild(row);
     }
